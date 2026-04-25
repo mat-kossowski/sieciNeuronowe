@@ -39,9 +39,15 @@ if prompt := st.chat_input():
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").write(prompt)
 
+    messages_to_send = []
+    if pdf_texts:
+        context = "\n\n".join([f"Dokument: {doc['name']}\n{doc['text']}" for doc in pdf_texts])
+        messages_to_send.append({"role": "system", "content": f"Masz dostęp do następujących dokumentów:\n\n{context}"})
+    messages_to_send.extend(st.session_state.messages)
+
     response = client.chat.completions.create(
         model=selected_model,
-        messages=st.session_state.messages
+        messages=messages_to_send
     )
     msg = response.choices[0].message.content
     st.session_state.messages.append({"role": "assistant", "content": msg})
