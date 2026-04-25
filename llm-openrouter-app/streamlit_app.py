@@ -18,6 +18,10 @@ with st.sidebar:
     if uploaded_files:
         pdf_texts = extract_text_from_pdfs(uploaded_files)
         st.success(f"Wczytano {len(pdf_texts)} plik(ów)")
+    if pdf_texts:
+    for doc in pdf_texts:
+        st.subheader(doc["name"])
+        st.text(doc["text"])
 
 st.title("OpenRouter chatbot app")
 
