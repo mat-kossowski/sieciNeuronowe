@@ -1,6 +1,7 @@
 import streamlit as st
 from openai import OpenAI
 from pdf_utils import extract_text_from_pdfs
+from embedder import create_index, retrieve_docs
 
 st.set_page_config(layout="wide", page_title="OpenRouter chatbot app")
 
@@ -16,11 +17,12 @@ with st.sidebar:
     )
     pdf_texts = []
     if uploaded_files:
-        pdf_texts = extract_text_from_pdfs(uploaded_files)
-        st.success(f"Wczytano {len(pdf_texts)} plik(ów)")
-        for doc in pdf_texts:
-            st.subheader(doc["name"])
-            st.text(doc["text"])
+        names = [f.name for f in uploaded_files]
+        if st.session_state.get("indexed_files") != names:
+            pdf_texts = extract_text_from_pdfs(uploaded_files)
+            st.session_state["index"] = create_index(pdf_texts)
+            st.session_state["indexed_files"] = names
+        st.success(f"Zaindeksowano {len(uploaded_files)} plik(ów)")
 
 st.title("OpenRouter chatbot app")
 
@@ -40,8 +42,10 @@ if prompt := st.chat_input():
     st.chat_message("user").write(prompt)
 
     messages_to_send = []
-    if pdf_texts:
-        context = "\n\n".join([f"Dokument: {doc['name']}\n{doc['text']}" for doc in pdf_texts])
+    index = st.session_state.get("index")
+    if index is not None:
+        docs = retrieve_docs(prompt, index, k=3)
+        context = "\n\n".join([f"Dokument: {doc['name']}\n{doc['text']}" for doc in docs])
         messages_to_send.append({"role": "system", "content": f"Masz dostęp do następujących dokumentów:\n\n{context}"})
     messages_to_send.extend(st.session_state.messages)
 
