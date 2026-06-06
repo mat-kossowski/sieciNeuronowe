@@ -3,6 +3,9 @@ import numpy as np
 from langchain_huggingface import HuggingFaceEmbeddings
 import streamlit as st
 
+embed_model_id = "intfloat/multilingual-e5-base"  # model wielojęzyczny, radzi sobie z polskim
+model_kwargs = {"device": "cpu", "trust_remote_code": True}
+
 @st.cache_resource
 def get_embeddings():
     return HuggingFaceEmbeddings(
@@ -21,9 +24,6 @@ class FAISSIndex:
         for idx in I[0]:
             results.append(self.metadata[idx])
         return results
-
-embed_model_id = "intfloat/multilingual-e5-base"  # model wielojęzyczny, radzi sobie z polskim
-model_kwargs = {"device": "cpu", "trust_remote_code": True}
 
 def create_index(documents):
     embeddings = get_embeddings()
