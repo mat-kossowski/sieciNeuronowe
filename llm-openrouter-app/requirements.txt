@@ -12,3 +12,4 @@ pydantic
 pytest
 tiktoken
 watchdog
+sentence-transformers
