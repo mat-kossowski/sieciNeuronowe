@@ -1,6 +1,14 @@
 import faiss
 import numpy as np
 from langchain_huggingface import HuggingFaceEmbeddings
+import streamlit as st
+
+@st.cache_resource
+def get_embeddings():
+    return HuggingFaceEmbeddings(
+        model_name=embed_model_id,
+        model_kwargs=model_kwargs,
+    )
 
 class FAISSIndex:
     def __init__(self, faiss_index, metadata):
@@ -18,10 +26,7 @@ embed_model_id = "intfloat/multilingual-e5-base"  # model wielojęzyczny, radzi 
 model_kwargs = {"device": "cpu", "trust_remote_code": True}
 
 def create_index(documents):
-    embeddings = HuggingFaceEmbeddings(
-        model_name=embed_model_id,
-        model_kwargs=model_kwargs,
-    )
+    embeddings = get_embeddings()
     texts = [doc["text"] for doc in documents]
     metadata = documents
 
@@ -34,10 +39,7 @@ def create_index(documents):
     return FAISSIndex(index, metadata)
 
 def retrieve_docs(query, faiss_index, k=3):
-    embeddings = HuggingFaceEmbeddings(
-        model_name=embed_model_id,
-        model_kwargs=model_kwargs,
-    )
+    embeddings = get_embeddings()
     query_embedding = np.array([embeddings.embed_query(query)]).astype("float32")
     results = faiss_index.similarity_search(query_embedding, k)
     return results
