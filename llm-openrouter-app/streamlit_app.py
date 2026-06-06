@@ -1,58 +1,85 @@
 import streamlit as st
-from openai import OpenAI
-from pdf_utils import extract_text_from_pdfs
-from embedder import create_index, retrieve_docs
+from chat_openrouter import ChatOpenRouter
+import os
+from langchain_core.prompts import ChatPromptTemplate
+import shutil
+from docloader import load_documents_from_folder
+from embedder_rag import create_index, retrieve_docs
 
-st.set_page_config(layout="wide", page_title="OpenRouter chatbot app")
+st.set_page_config(layout="wide", page_title="Rag chatbot app")
+st.title("Rag chatbot app")
 
-api_key, base_url = st.secrets["API_KEY"], st.secrets["BASE_URL"]
-selected_model = "gemini-2.5-flash"
+UPLOAD_FOLDER = "data/uploaded_pdfs"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-with st.sidebar:
-    st.header("📄 Dokumenty PDF")
-    uploaded_files = st.file_uploader(
-        "Wgraj pliki PDF",
-        type="pdf",
-        accept_multiple_files=True
-    )
-    pdf_texts = []
-    if uploaded_files:
-        names = [f.name for f in uploaded_files]
-        if st.session_state.get("indexed_files") != names:
-            pdf_texts = extract_text_from_pdfs(uploaded_files)
-            st.session_state["index"] = create_index(pdf_texts)
-            st.session_state["indexed_files"] = names
-        st.success(f"Zaindeksowano {len(uploaded_files)} plik(ów)")
+template = """
+Jesteś asystentem do odpowiadania na pytania zgodnie z Twoją bazą wiedzy. Odpowiadaj w maksymlanie 3 zdaniach
+Question: {question} 
+Context: {context} 
+Answer:
+"""
 
-st.title("OpenRouter chatbot app")
+selected_model = "gemini-2.5-flash" # nazwa modelu
+model = ChatOpenRouter(model_name=selected_model)
+
+def answer_question(question, documents, model):
+    context = "\n\n".join([doc["text"] for doc in documents])
+    prompt = ChatPromptTemplate.from_template(template) # prompt template'owy
+    chain = prompt | model # chain
+    return chain.invoke({"question": question, "context": context})
+
+if "query" not in st.session_state:
+    st.session_state.query = ""
+if "answer" not in st.session_state:
+    st.session_state.answer = ""
+if "clear_files" not in st.session_state:
+    st.session_state.clear_files = False
+if "retrieve_files" not in st.session_state:
+    st.session_state.retrieve_files = False
+if "faiss_index" not in st.session_state:
+    st.session_state.faiss_index = None
+
+uploaded_files = st.sidebar.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True, key="file_uploader")
+
+if st.sidebar.button("Clear files"):
+    shutil.rmtree(UPLOAD_FOLDER)
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    st.session_state.clear_files = True
+    st.session_state.query = ""
+    st.session_state.answer = ""
+    st.sidebar.success("Uploaded files cleared!")
+
+if st.session_state.clear_files:
+    uploaded_files = None
+    st.session_state.clear_files = False
+    st.session_state.retrieve_files = False
+
+if uploaded_files:
+    for uploaded_file in uploaded_files:
+        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+    st.write("Files uploaded successfully!")
+    documents = load_documents_from_folder(UPLOAD_FOLDER)
+    st.session_state.faiss_index = create_index(documents) # dodanie stanu bazy do sesji
+    st.write("Files retrieved successfully!")
+    st.session_state.retrieve_files = True
 
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
+    st.session_state["messages"] = [
+        {"role": "assistant", "content": "Jak mogę pomóc?"}
+    ]
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-if prompt := st.chat_input():
-    if not api_key:
-        st.info("Invalid API key.")
-        st.stop()
-
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").write(prompt)
-
-    messages_to_send = []
-    index = st.session_state.get("index")
-    if index is not None:
-        docs = retrieve_docs(prompt, index, k=3)
-        context = "\n\n".join([f"Dokument: {doc['name']}\n{doc['text']}" for doc in docs])
-        messages_to_send.append({"role": "system", "content": f"Masz dostęp do następujących dokumentów:\n\n{context}"})
-    messages_to_send.extend(st.session_state.messages)
-
-    response = client.chat.completions.create(
-        model=selected_model,
-        messages=messages_to_send
-    )
-    msg = response.choices[0].message.content
-    st.session_state.messages.append({"role": "assistant", "content": msg})
-    st.chat_message("assistant").write(msg)
+if question := st.chat_input():
+    st.session_state.messages.append({"role": "user", "content": question})
+    st.chat_message("user").write(question)
+    if st.session_state.retrieve_files:
+        related_documents = retrieve_docs(question, st.session_state.faiss_index) # wyszukanie najbardziej pasujących do query dokumentów
+        answer = answer_question(question, related_documents, model) # wywołanie odpowiedzi na pytanie z dodanymi do kontekstu dokumentami
+    else:
+        answer = answer_question(question, [], model)
+    st.session_state.messages.append({"role": "assistant", "content": answer.content})
+    st.chat_message("assistant").write(answer.content)
